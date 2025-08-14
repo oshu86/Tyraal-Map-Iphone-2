@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>index – Interaktiv karta (mobiloptimerad v2.5)</title>
+<title>index – Interaktiv karta (mobiloptimerad v2.6)</title>
 <style>
   :root { --bg:#0f1115; --ink:#e6e6e6; --muted:#2a3142; --panel:#141822; --shadow: rgba(0,0,0,.45); --accent:#ffd166; --line:#7dd3fc; --vh: 1vh; }
   * { box-sizing: border-box; }
@@ -64,10 +64,10 @@
 
   /* Bottenskiva (mobil-notiser) */
   #sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 90; display:none; }
-  #sheetPanel { margin: 0 auto; max-width: 880px; background: rgba(20,24,34,.98); border-top-left-radius: 16px; border-top-right-radius: 16px; border:1px solid #2a3142; box-shadow: 0 -8px 24px rgba(0,0,0,.45); padding: 10px 12px 14px; transform: translateY(0); will-change: transform; }
+  #sheetPanel { margin: 0 auto; max-width: 880px; background: rgba(20,24,34,.98); border-top-left-radius: 16px; border-top-right-radius: 16px; border:1px solid #2a3142; box-shadow: 0 -8px 24px rgba(0,0,0,.45); padding: 6px 12px 14px; transform: translateY(0); will-change: transform; touch-action: pan-y; }
   #sheetHeader { display:flex; align-items:center; justify-content: space-between; gap:8px; padding-bottom:8px; border-bottom:1px solid #262c3b; }
   #sheetHandle { width: 44px; height: 5px; background:#3b4154; border-radius: 999px; margin: 4px auto 10px; opacity:.85; touch-action:none; }
-  #sheetBody { max-height: 48dvh; overflow:auto; }
+  #sheetBody { max-height: 48dvh; overflow:auto; -webkit-overflow-scrolling: touch; }
   .mini-ghost { background:transparent; border:1px solid #374151; color:#e5e7eb; padding:6px 10px; border-radius:10px; cursor:pointer; }
 </style>
 </head>
@@ -99,7 +99,7 @@
         </div>
       </div>
       <div id="sheetBody" contenteditable="true" spellcheck="false"></div>
-      <p id="sheetHint" style="opacity:.75; font-size:12px; margin-top:8px">Tips: tryck för att skriva, bilder kan läggas till via + Bild.</p>
+      <p id="sheetHint" style="opacity:.75; font-size:12px; margin-top:8px">Tips: dra handtaget för att expandera/stänga.</p>
     </div>
   </div>
 
@@ -159,10 +159,12 @@
   const mAddImgBtn = document.getElementById('mAddImg');
   const mImgInput = document.getElementById('mImgInput');
   const sheet = document.getElementById('sheet');
+  const sheetPanel = document.getElementById('sheetPanel');
   const sheetBody = document.getElementById('sheetBody');
   const sheetTitle = document.getElementById('sheetTitle');
   const sheetClose = document.getElementById('sheetClose');
   const sheetHint = document.getElementById('sheetHint');
+  const sheetHandle = document.getElementById('sheetHandle');
   const lightbox = document.getElementById('lightbox');
   const lightboxImg = document.getElementById('lightboxImg');
   const modeLabel = document.getElementById('modeLabel');
@@ -233,18 +235,17 @@
     if (e.pointerType === 'mouse' && e.button === 2){
       rightPan = true; panStart = { x: e.clientX, y: e.clientY, tx, ty };
       window.addEventListener('contextmenu', ev => ev.preventDefault(), { once:true });
-      stage.setPointerCapture(e.pointerId); // capture ENDAST när vi faktiskt pan:ar
+      stage.setPointerCapture(e.pointerId);
     }
     // Vänster mus → starta pan endast om inte på markör
     if (e.pointerType === 'mouse' && e.button === 0 && !onMarker){
       leftPan = true; panStart = { x: e.clientX, y: e.clientY, tx, ty };
-      stage.setPointerCapture(e.pointerId); // capture bara för pan
+      stage.setPointerCapture(e.pointerId);
     }
 
     // Touch: spåra panning/zoom
     if (e.pointerType !== 'mouse'){
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      // Capture för touch gester för att få stabilt pinch/drag
       stage.setPointerCapture(e.pointerId);
     }
   });
@@ -293,7 +294,7 @@
   stage.addEventListener('pointercancel', endPointer);
 
   // ===== Lagring (IndexedDB + localStorage) =====
-  const LSK = 'tyraal_markers_meta_v18';
+  const LSK = 'tyraal_markers_meta_v19';
   const DB_NAME = 'tyraal_db'; const DB_STORE = 'notes';
   let db = null;
   function openDB(){ return new Promise((resolve, reject) => { const req = indexedDB.open(DB_NAME, 1); req.onupgradeneeded = () => { db = req.result; if (!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE, { keyPath: 'id' }); }; req.onsuccess = () => { db = req.result; resolve(db); }; req.onerror = () => reject(req.error); }); }
@@ -351,7 +352,7 @@
   function closeLightbox(){ lightbox.style.display = 'none'; lightboxImg.src = ''; }
   lightbox.addEventListener('click', closeLightbox);
 
-  // ===== Markörer (PC): klick öppnar, Alt/Shift + drag flyttar
+  // ===== Markörer (PC): klick öppnar, Alt/Shift + drag flyttar, drag-tröskel
   function uid(){ return Math.random().toString(36).slice(2,9); }
   function clientToWorldXY(x,y){ const rect = stage.getBoundingClientRect(); const cx = x - rect.left; const cy = y - rect.top; return { wx: (cx - tx) / scale, wy: (cy - ty) / scale }; }
 
@@ -387,7 +388,7 @@
       canDrag = ev.altKey || ev.shiftKey; dragging = false;
       startX = ev.clientX; startY = ev.clientY;
       if (canDrag){ document.body.classList.add('grabbing'); stage.classList.add('grabbing'); m.setPointerCapture(ev.pointerId); }
-      ev.stopPropagation(); // förhindra att stage startar pan/capture vid marker-klick
+      ev.stopPropagation();
     });
     m.addEventListener('pointermove', ev => {
       if (!canDrag) return;
@@ -436,8 +437,11 @@
   }
 
   function closePanels(){
-    sidebar.style.display = 'none'; sheet.style.display = 'none';
-    if (openId){ const marker = world.querySelector(`.marker[data-id="${openId}"]`); if (marker) marker.classList.remove('open'); }
+    sidebar.style.display = 'none';
+    // Stäng sheet helt och nollställ marker/openId
+    sheet.style.display = 'none';
+    const prev = openId ? world.querySelector(`.marker[data-id="${openId}"]`) : null;
+    if (prev) prev.classList.remove('open');
     openId = null;
   }
 
@@ -448,30 +452,89 @@
     closePanels();
   });
 
-  // ===== Bottenskiva: drag upp/ner =====
-  const sheetPanel = document.getElementById('sheetPanel');
-  const sheetHandle = document.getElementById('sheetHandle');
-  sheetClose.addEventListener('click', () => closePanels());
-
+  // ===== Bottenskiva: swipe upp/ner (half/full/closed) =====
   let sheetState = 'half'; // 'closed' | 'half' | 'full'
-  function setSheetHeight(state){
+  function setSheetHeight(state, animate=true){
     sheetState = state;
     const vh = (visualViewport ? visualViewport.height : window.innerHeight);
     const half = Math.round(vh * 0.48); const full = Math.round(vh * 0.92);
     const h = state==='full' ? full : (state==='half' ? half : 0);
     sheetBody.style.maxHeight = (state==='full' ? (full - 74) : (half - 74)) + 'px';
-    sheetPanel.style.transition = 'transform 180ms ease-out';
+    if (animate) sheetPanel.style.transition = 'transform 180ms ease-out';
     sheetPanel.style.transform = `translateY(${state==='closed' ? (h+40) : 0}px)`;
-    if (state==='closed') sheet.style.display = 'none'; else sheet.style.display = 'block';
-    setTimeout(()=>{ sheetPanel.style.transition = 'none'; }, 200);
+    if (state==='closed') {
+      // När sheet stängs via swipe ska notisen också stängas
+      closePanels();
+    } else {
+      sheet.style.display = 'block';
+    }
+    if (animate) setTimeout(()=>{ sheetPanel.style.transition = 'none'; }, 200);
   }
-  function openSheet(state='half'){ setSheetHeight(state); }
+  function openSheet(state='half'){ sheet.style.display = 'block'; setSheetHeight(state); }
 
-  // Drag på handtaget
-  let dragStartY = 0;
-  sheetHandle.addEventListener('pointerdown', e => { dragStartY = e.clientY; sheetHandle.setPointerCapture(e.pointerId); });
-  sheetHandle.addEventListener('pointermove', e => { if (!dragStartY) return; const dy = e.clientY - dragStartY; const dir = dy > 0 ? 'down' : 'up'; if (Math.abs(dy) > 30){ if (dir==='up') setSheetHeight('full'); else setSheetHeight('closed'); dragStartY = 0; } });
-  sheetHandle.addEventListener('pointerup', ()=> dragStartY=0);
+  // Swipe-gest: kan startas på handtaget, headern eller på body om body är scrollad till topp
+  let dragStartY = 0, dragStartTime = 0, draggingSheet = false, startState = 'half', lastY = 0;
+  function canStartDragFromBody(){ return sheetBody.scrollTop <= 0; }
+
+  function sheetDragStart(e){
+    draggingSheet = true; dragStartY = e.clientY; lastY = e.clientY; dragStartTime = performance.now(); startState = sheetState;
+    sheetPanel.setPointerCapture(e.pointerId);
+  }
+  function sheetDragMove(e){
+    if (!draggingSheet) return;
+    const dy = e.clientY - dragStartY;
+    const vh = (visualViewport ? visualViewport.height : window.innerHeight);
+    const half = Math.round(vh * 0.48); const full = Math.round(vh * 0.92);
+    const startOffset = (startState==='full' ? 0 : 0); // båda utgår från 0 i vår modell
+    // Begränsa att man inte drar uppåt förbi 0
+    const offset = Math.max(0, startOffset + dy);
+    sheetPanel.style.transition = 'none';
+    sheetPanel.style.transform = `translateY(${offset}px)`;
+    lastY = e.clientY;
+  }
+  function sheetDragEnd(e){
+    if (!draggingSheet) return;
+    draggingSheet = false; sheetPanel.releasePointerCapture?.(e.pointerId);
+    const dy = e.clientY - dragStartY; const dt = Math.max(1, performance.now() - dragStartTime);
+    const vy = dy / dt; // px per ms
+    const vh = (visualViewport ? visualViewport.height : window.innerHeight);
+    const threshold = vh * 0.18; // rörelsetröskel
+    const fast = Math.abs(vy) > 0.7; // snabb swipe
+
+    // Beslut: close / half / full
+    if (dy > threshold || (fast && vy > 0)) { // neråt
+      setSheetHeight('closed');
+    } else if (dy < -threshold || (fast && vy < 0)) { // uppåt
+      setSheetHeight('full');
+    } else {
+      // Återgå till närmaste
+      if (Math.abs(dy) < threshold * 0.5) setSheetHeight(startState);
+      else setSheetHeight(dy > 0 ? 'closed' : 'full');
+    }
+  }
+
+  // Bind drag på handtag och header
+  ;[sheetHandle, document.getElementById('sheetHeader')].forEach(el => {
+    el.addEventListener('pointerdown', e => { e.preventDefault(); sheetDragStart(e); });
+    el.addEventListener('pointermove', sheetDragMove);
+    el.addEventListener('pointerup', sheetDragEnd);
+    el.addEventListener('pointercancel', sheetDragEnd);
+  });
+  // Tillåt drag från body när man drar NER och är i topp (för att stänga)
+  sheetBody.addEventListener('pointerdown', e => {
+    if (canStartDragFromBody()) { sheetDragStart(e); }
+  });
+  sheetBody.addEventListener('pointermove', e => {
+    if (!draggingSheet) return;
+    // Om man börjar scrolla uppåt (negativt), låt body sköta det
+    const goingDown = (e.clientY - lastY) > 0;
+    if (draggingSheet && goingDown) { e.preventDefault(); sheetDragMove(e); }
+  }, { passive:false });
+  sheetBody.addEventListener('pointerup', sheetDragEnd);
+  sheetBody.addEventListener('pointercancel', sheetDragEnd);
+
+  // Stäng-knapp stänger notis helt
+  sheetClose.addEventListener('click', () => setSheetHeight('closed'));
 
   // ===== MÄTNING =====
   let mode = 'notes'; let measurePoints = []; let measurePath = null;
