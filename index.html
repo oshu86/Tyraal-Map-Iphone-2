@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>index – Interaktiv karta (mobiloptimerad v2.1)</title>
+<title>index – Interaktiv karta (mobiloptimerad v2.5)</title>
 <style>
   :root { --bg:#0f1115; --ink:#e6e6e6; --muted:#2a3142; --panel:#141822; --shadow: rgba(0,0,0,.45); --accent:#ffd166; --line:#7dd3fc; --vh: 1vh; }
   * { box-sizing: border-box; }
@@ -175,7 +175,7 @@
   const sbBar = document.getElementById('sbBar');
   const sbLabel = document.getElementById('sbLabel');
 
-  // ===== Kamera (pinch-zoom + finger-pan stabil) =====
+  // ===== Kamera =====
   let scale = 1, MIN = 1, MAX = 24, startScale = 1; 
   let tx = 0, ty = 0, imgW = 0, imgH = 0;
 
@@ -188,7 +188,7 @@
     if (h <= vh) return { minTx: Math.min(0, vw - w), maxTx: 0, minTy:centerY, maxTy:centerY };
     return { minTx: Math.min(0, vw - w), maxTx: 0, minTy: Math.min(0, vh - h), maxTy: 0 };
   }
-  function clamp(v,a,b){ return Math.min(b, Math.max(a,v)); }
+  const clamp = (v,a,b) => Math.min(b, Math.max(a,v));
   function clampPan(){ const b = getPanBounds(); tx = clamp(tx, b.minTx, b.maxTx); ty = clamp(ty, b.minTy, b.maxTy); }
 
   function applyTransform(){
@@ -217,49 +217,83 @@
     tx = (vw - w)/2; ty = (vh - h)/2; applyTransform();
   }
 
-  // Mus-hjul
+  // — Mus-hjul zoom
   stage.addEventListener('wheel', e => { e.preventDefault(); const f = e.deltaY < 0 ? 1.15 : 1/1.15; zoomAt(e.clientX, e.clientY, f); }, {passive:false});
 
-  // Pekhändelser – FIX: håll endast riktiga pekare i Map
+  // — Pointers (touch + mus)
   const pointers = new Map(); // id -> {x,y}
   let lastDist = null;
-  let panStart = null; // {x,y,tx,ty}
+  let leftPan = false; // vänster-pan på tom yta
+  let rightPan = false; // höger-pan var som helst
+  let panStart = null;  // {x,y,tx,ty}
 
   stage.addEventListener('pointerdown', e => {
-    // ignorera höger/mittknapp på mus
-    if (e.pointerType === 'mouse' && e.button !== 0) return;
-    stage.setPointerCapture(e.pointerId);
-    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (pointers.size === 1) panStart = { x: e.clientX, y: e.clientY, tx, ty };
+    const onMarker = !!e.target.closest('.marker');
+    // Höger mus → pan alltid
+    if (e.pointerType === 'mouse' && e.button === 2){
+      rightPan = true; panStart = { x: e.clientX, y: e.clientY, tx, ty };
+      window.addEventListener('contextmenu', ev => ev.preventDefault(), { once:true });
+      stage.setPointerCapture(e.pointerId); // capture ENDAST när vi faktiskt pan:ar
+    }
+    // Vänster mus → starta pan endast om inte på markör
+    if (e.pointerType === 'mouse' && e.button === 0 && !onMarker){
+      leftPan = true; panStart = { x: e.clientX, y: e.clientY, tx, ty };
+      stage.setPointerCapture(e.pointerId); // capture bara för pan
+    }
+
+    // Touch: spåra panning/zoom
+    if (e.pointerType !== 'mouse'){
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      // Capture för touch gester för att få stabilt pinch/drag
+      stage.setPointerCapture(e.pointerId);
+    }
   });
 
   stage.addEventListener('pointermove', e => {
-    if (!pointers.has(e.pointerId)) return;
-    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    const pts = [...pointers.values()];
-    if (pts.length === 1 && panStart){
-      const p = pts[0];
+    if (e.pointerType !== 'mouse' && pointers.has(e.pointerId)){
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      const pts = [...pointers.values()];
+      if (pts.length === 1 && !leftPan && !rightPan){
+        const p = pts[0];
+        if (!panStart) panStart = { x: e.clientX, y: e.clientY, tx, ty };
+        tx = panStart.tx + (p.x - panStart.x);
+        ty = panStart.ty + (p.y - panStart.y);
+        clampPan(); applyTransform();
+        return;
+      }
+      if (pts.length === 2){
+        const [a,b] = pts; const midX=(a.x+b.x)/2, midY=(a.y+b.y)/2; const dist = Math.hypot(b.x-a.x, b.y-a.y);
+        if (lastDist==null) { lastDist = dist; return; }
+        const factor = dist / lastDist; lastDist = dist; zoomAt(midX, midY, factor);
+        return;
+      }
+    }
+
+    // Mus-pan
+    if ((leftPan || rightPan) && panStart){
+      const p = { x: e.clientX, y: e.clientY };
       tx = panStart.tx + (p.x - panStart.x);
       ty = panStart.ty + (p.y - panStart.y);
       clampPan(); applyTransform();
-    } else if (pts.length === 2){
-      panStart = null; // växla till pinch
-      const [a,b] = pts; const midX=(a.x+b.x)/2, midY=(a.y+b.y)/2; const dist = Math.hypot(b.x-a.x, b.y-a.y);
-      if (lastDist==null) { lastDist = dist; return; }
-      const factor = dist / lastDist; lastDist = dist; zoomAt(midX, midY, factor);
     }
   });
 
   function endPointer(e){
-    pointers.delete(e.pointerId);
-    if (pointers.size < 2) lastDist = null;
-    if (pointers.size === 0) panStart = null; // släpp pan
+    if (e.pointerType !== 'mouse'){
+      pointers.delete(e.pointerId);
+      if (pointers.size < 2) lastDist = null;
+      if (pointers.size === 0) panStart = null;
+    }
+    if (e.pointerType === 'mouse'){
+      if (leftPan || rightPan) stage.releasePointerCapture?.(e.pointerId);
+      leftPan = false; rightPan = false; panStart = null;
+    }
   }
-  stage.addEventListener('pointerup', endPointer); 
+  stage.addEventListener('pointerup', endPointer);
   stage.addEventListener('pointercancel', endPointer);
 
   // ===== Lagring (IndexedDB + localStorage) =====
-  const LSK = 'tyraal_markers_meta_v14';
+  const LSK = 'tyraal_markers_meta_v18';
   const DB_NAME = 'tyraal_db'; const DB_STORE = 'notes';
   let db = null;
   function openDB(){ return new Promise((resolve, reject) => { const req = indexedDB.open(DB_NAME, 1); req.onupgradeneeded = () => { db = req.result; if (!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE, { keyPath: 'id' }); }; req.onsuccess = () => { db = req.result; resolve(db); }; req.onerror = () => reject(req.error); }); }
@@ -317,13 +351,14 @@
   function closeLightbox(){ lightbox.style.display = 'none'; lightboxImg.src = ''; }
   lightbox.addEventListener('click', closeLightbox);
 
-  // ===== Markörer =====
+  // ===== Markörer (PC): klick öppnar, Alt/Shift + drag flyttar
   function uid(){ return Math.random().toString(36).slice(2,9); }
   function clientToWorldXY(x,y){ const rect = stage.getBoundingClientRect(); const cx = x - rect.left; const cy = y - rect.top; return { wx: (cx - tx) / scale, wy: (cy - ty) / scale }; }
 
+  // Skapa ny markör (dblclick på tom karta)
   stage.addEventListener('dblclick', e => {
     if (mode !== 'notes' || IS_PLAYER) return;
-    if (e.target.classList && (e.target.classList.contains('marker') || e.target.closest('#sidebar') || e.target.closest('#sheet'))) return;
+    if (e.target.closest('.marker') || e.target.closest('#sidebar') || e.target.closest('#sheet')) return;
     e.preventDefault();
     const { wx, wy } = clientToWorldXY(e.clientX, e.clientY);
     const id = uid(); store[id] = { html: 'Skriv din not här...' };
@@ -333,13 +368,44 @@
   function createMarker(wx, wy, id, saveNow=true){
     if (!isFinite(wx) || !isFinite(wy)) return null;
     const m = document.createElement('div'); m.className = 'marker'; m.dataset.id = id; m.style.left = wx + 'px'; m.style.top = wy + 'px';
-    m.addEventListener('click', ev => { ev.stopPropagation(); if (openId === id) { closePanels(); } else { openMarker(id); } });
+
+    let dragging = false, canDrag = false, startX=0, startY=0;
+    const DRAG_THRESHOLD = 5; // px
+    let suppressNextClick = false;
+
+    // Öppna vid klick (om ingen drag)
+    m.addEventListener('click', ev => {
+      if (suppressNextClick) { suppressNextClick = false; return; }
+      ev.stopPropagation();
+      if (openId === id) closePanels(); else openMarker(id);
+    });
+
+    // Alt/Shift + drag för flytt
+    m.addEventListener('pointerdown', ev => {
+      if (mode !== 'notes' || IS_PLAYER) return;
+      if (ev.pointerType==='mouse' && ev.button!==0) return; // bara vänster
+      canDrag = ev.altKey || ev.shiftKey; dragging = false;
+      startX = ev.clientX; startY = ev.clientY;
+      if (canDrag){ document.body.classList.add('grabbing'); stage.classList.add('grabbing'); m.setPointerCapture(ev.pointerId); }
+      ev.stopPropagation(); // förhindra att stage startar pan/capture vid marker-klick
+    });
+    m.addEventListener('pointermove', ev => {
+      if (!canDrag) return;
+      const dx = ev.clientX - startX, dy = ev.clientY - startY;
+      if (!dragging && (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD)) dragging = true;
+      if (dragging){
+        const { wx, wy } = clientToWorldXY(ev.clientX, ev.clientY);
+        m.style.left = wx + 'px';
+        m.style.top  = wy + 'px';
+      }
+    });
+    m.addEventListener('pointerup', ev => {
+      if (dragging){ suppressNextClick = true; saveMeta(); }
+      dragging = false; canDrag = false;
+      document.body.classList.remove('grabbing'); stage.classList.remove('grabbing');
+    });
+
     m.addEventListener('contextmenu', async ev => { if (IS_PLAYER) return; ev.preventDefault(); if (confirm('Ta bort denna markering och dess notis?')) { if (openId === id) closePanels(); world.removeChild(m); delete store[id]; saveMeta(); try { await idbSet(id, ''); } catch(_){} } });
-    // Dra markör (GM)
-    let draggingLocal = false; let dx = 0, dy = 0;
-    m.addEventListener('pointerdown', ev => { if (mode !== 'notes' || IS_PLAYER) return; if (ev.pointerType==='mouse' && ev.button!==0) return; draggingLocal = true; const p=clientToWorldXY(ev.clientX, ev.clientY); dx = p.wx - parseFloat(m.style.left); dy = p.wy - parseFloat(m.style.top); document.body.classList.add('grabbing'); stage.classList.add('grabbing'); ev.preventDefault(); m.setPointerCapture(ev.pointerId); });
-    m.addEventListener('pointermove', ev => { if (!draggingLocal) return; const p=clientToWorldXY(ev.clientX, ev.clientY); m.style.left = (p.wx - dx) + 'px'; m.style.top = (p.wy - dy) + 'px'; });
-    m.addEventListener('pointerup', () => { if (draggingLocal){ draggingLocal=false; document.body.classList.remove('grabbing'); stage.classList.remove('grabbing'); saveMeta(); } });
 
     world.appendChild(m);
     if (saveNow) saveMeta();
@@ -349,28 +415,38 @@
   function openMarker(id){
     if (openId && openId !== id){ const prev = world.querySelector(`.marker[data-id="${openId}"]`); if (prev) prev.classList.remove('open'); }
     openId = id; const marker = world.querySelector(`.marker[data-id="${id}"]`); if (marker) marker.classList.add('open');
-    const render = (html) => {
+    const html = store[id]?.html;
+    const render = (h) => {
       if (IS_MOBILE){
         sheetTitle.textContent = 'Markering ' + id; sheet.style.display = 'block';
-        sheetBody.innerHTML = html; sheetBody.contentEditable = IS_PLAYER ? 'false' : 'true';
+        sheetBody.innerHTML = h; sheetBody.contentEditable = IS_PLAYER ? 'false' : 'true';
         sheetHint.style.display = IS_PLAYER ? 'none' : 'block';
         openSheet('half');
       } else {
         sidebarTitle.textContent = 'Markering ' + id; sidebar.style.display = 'block';
-        noteBody.innerHTML = html; noteBody.contentEditable = IS_PLAYER ? 'false' : 'true';
+        noteBody.innerHTML = h; noteBody.contentEditable = IS_PLAYER ? 'false' : 'true';
         pasteHint.style.display = IS_PLAYER ? 'none' : 'block';
       }
       (IS_MOBILE ? sheetBody : noteBody).querySelectorAll('img').forEach(img => attachImageClick(img));
       bindOnce();
       (IS_MOBILE ? null : editorBtns).style.display = IS_PLAYER ? 'none' : 'flex';
     };
-    if (!store[id]){ idbGet(id).then(html => { store[id] = { html: html || 'Skriv din not här...' }; render(store[id].html); }); }
-    else render(store[id].html || 'Skriv din not här...');
+    if (typeof html !== 'string'){ idbGet(id).then(h => { store[id] = { html: h || 'Skriv din not här...' }; render(store[id].html); }); }
+    else render(html || 'Skriv din not här...');
   }
 
-  function closePanels(){ sidebar.style.display = 'none'; sheet.style.display = 'none'; if (openId){ const marker = world.querySelector(`.marker[data-id="${openId}"]`); if (marker) marker.classList.remove('open'); } openId = null; }
+  function closePanels(){
+    sidebar.style.display = 'none'; sheet.style.display = 'none';
+    if (openId){ const marker = world.querySelector(`.marker[data-id="${openId}"]`); if (marker) marker.classList.remove('open'); }
+    openId = null;
+  }
 
-  stage.addEventListener('click', e => { if (mode !== 'notes') return; if (e.target.classList && e.target.classList.contains('marker')) return; closePanels(); });
+  // Klick på tom karta stänger panel
+  stage.addEventListener('click', e => {
+    if (mode !== 'notes') return;
+    if (e.target.closest('.marker')) return; // låt marker‑klick sköta sig
+    closePanels();
+  });
 
   // ===== Bottenskiva: drag upp/ner =====
   const sheetPanel = document.getElementById('sheetPanel');
@@ -394,10 +470,7 @@
   // Drag på handtaget
   let dragStartY = 0;
   sheetHandle.addEventListener('pointerdown', e => { dragStartY = e.clientY; sheetHandle.setPointerCapture(e.pointerId); });
-  sheetHandle.addEventListener('pointermove', e => {
-    if (!dragStartY) return; const dy = e.clientY - dragStartY; const dir = dy > 0 ? 'down' : 'up';
-    if (Math.abs(dy) > 30){ if (dir==='up') setSheetHeight('full'); else setSheetHeight('closed'); dragStartY = 0; }
-  });
+  sheetHandle.addEventListener('pointermove', e => { if (!dragStartY) return; const dy = e.clientY - dragStartY; const dir = dy > 0 ? 'down' : 'up'; if (Math.abs(dy) > 30){ if (dir==='up') setSheetHeight('full'); else setSheetHeight('closed'); dragStartY = 0; } });
   sheetHandle.addEventListener('pointerup', ()=> dragStartY=0);
 
   // ===== MÄTNING =====
@@ -407,11 +480,11 @@
   btnModeMeasure.addEventListener('click', () => setMode('measure'));
   btnUndo.addEventListener('click', () => { if (mode !== 'measure') setMode('measure'); measurePoints.pop(); updateMeasurePath(); });
   btnReset.addEventListener('click', () => { if (mode !== 'measure') setMode('measure'); measurePoints = []; updateMeasurePath(); });
-  function formatMeters(m){ return (m < 1000) ? Math.round(m) + ' m' : (m/1000).toFixed(2) + ' km'; }
+  const formatMeters = m => (m < 1000) ? Math.round(m) + ' m' : (m/1000).toFixed(2) + ' km';
   function updateReadout(){ const pxPerKm = 1000 / getMetersPerPixel(); readout.textContent = 'Skala: ' + Math.round(pxPerKm) + ' px/km'; }
   updateReadout();
   function updateMeasurePath(){ if (!measurePoints.length) { if (measurePath) { measurePath.remove(); measurePath=null; } updateReadout(); return; } const d = measurePoints.map((p,i)=> (i? 'L':'M') + p.x + ' ' + p.y).join(' '); if (!measurePath){ measurePath = document.createElementNS('http://www.w3.org/2000/svg','path'); measurePath.setAttribute('class','measure-line'); overlay.appendChild(measurePath); } measurePath.setAttribute('d', d); let totalPx = 0; for (let i=1;i<measurePoints.length;i++){ const a=measurePoints[i-1], b=measurePoints[i]; totalPx += Math.hypot(b.x-a.x, b.y-a.y); } readout.textContent = 'Total: ' + formatMeters(totalPx * getMetersPerPixel()); }
-  stage.addEventListener('click', e => { if (mode!=='measure') return; const { wx, wy } = clientToWorldXY(e.clientX, e.clientY); measurePoints.push({x:wx,y:wy}); updateMeasurePath(); });
+  stage.addEventListener('click', e => { if (mode!=='measure') return; const rect=stage.getBoundingClientRect(); const wx = (e.clientX - rect.left - tx) / scale; const wy = (e.clientY - rect.top - ty) / scale; measurePoints.push({x:wx,y:wy}); updateMeasurePath(); });
 
   // ===== Skallinje =====
   const SCALE_CANDIDATES = [500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000];
