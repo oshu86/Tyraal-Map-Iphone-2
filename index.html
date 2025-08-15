@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>index – Interaktiv karta (mobiloptimerad v2.6)</title>
+<title>index – Interaktiv karta (mobiloptimerad v2.7)</title>
 <style>
   :root { --bg:#0f1115; --ink:#e6e6e6; --muted:#2a3142; --panel:#141822; --shadow: rgba(0,0,0,.45); --accent:#ffd166; --line:#7dd3fc; --vh: 1vh; }
   * { box-sizing: border-box; }
@@ -294,7 +294,7 @@
   stage.addEventListener('pointercancel', endPointer);
 
   // ===== Lagring (IndexedDB + localStorage) =====
-  const LSK = 'tyraal_markers_meta_v19';
+  const LSK = 'tyraal_markers_meta_v20';
   const DB_NAME = 'tyraal_db'; const DB_STORE = 'notes';
   let db = null;
   function openDB(){ return new Promise((resolve, reject) => { const req = indexedDB.open(DB_NAME, 1); req.onupgradeneeded = () => { db = req.result; if (!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE, { keyPath: 'id' }); }; req.onsuccess = () => { db = req.result; resolve(db); }; req.onerror = () => reject(req.error); }); }
@@ -438,7 +438,6 @@
 
   function closePanels(){
     sidebar.style.display = 'none';
-    // Stäng sheet helt och nollställ marker/openId
     sheet.style.display = 'none';
     const prev = openId ? world.querySelector(`.marker[data-id="${openId}"]`) : null;
     if (prev) prev.classList.remove('open');
@@ -452,65 +451,83 @@
     closePanels();
   });
 
-  // ===== Bottenskiva: swipe upp/ner (half/full/closed) =====
+  // ===== Bottenskiva: swipe upp/ner =====
   let sheetState = 'half'; // 'closed' | 'half' | 'full'
+  let sheetOffsetY = 0; // nuvarande translateY i px (positiv = nedåt)
+
+  function sizes(){
+    const vh = (visualViewport ? visualViewport.height : window.innerHeight);
+    return {
+      half: Math.round(vh * 0.50),    // lite större "half" för mer innehåll
+      full: Math.round(vh * 0.965),   // nästan fullskärm
+      header: 74
+    };
+  }
+
+  function applySheetTransform(offset){
+    sheetOffsetY = offset;
+    sheetPanel.style.transform = `translateY(${Math.max(0, offset)}px)`;
+  }
+
   function setSheetHeight(state, animate=true){
     sheetState = state;
-    const vh = (visualViewport ? visualViewport.height : window.innerHeight);
-    const half = Math.round(vh * 0.48); const full = Math.round(vh * 0.92);
-    const h = state==='full' ? full : (state==='half' ? half : 0);
-    sheetBody.style.maxHeight = (state==='full' ? (full - 74) : (half - 74)) + 'px';
-    if (animate) sheetPanel.style.transition = 'transform 180ms ease-out';
-    sheetPanel.style.transform = `translateY(${state==='closed' ? (h+40) : 0}px)`;
+    const S = sizes();
+    const h = state==='full' ? S.full : (state==='half' ? S.half : 0);
+    sheetBody.style.maxHeight = (state==='full' ? (S.full - S.header) : (S.half - S.header)) + 'px';
+    if (animate) sheetPanel.style.transition = 'transform 160ms ease-out';
+    applySheetTransform(state==='closed' ? (h+40) : 0);
     if (state==='closed') {
-      // När sheet stängs via swipe ska notisen också stängas
       closePanels();
     } else {
       sheet.style.display = 'block';
     }
-    if (animate) setTimeout(()=>{ sheetPanel.style.transition = 'none'; }, 200);
+    if (animate) setTimeout(()=>{ sheetPanel.style.transition = 'none'; }, 180);
   }
   function openSheet(state='half'){ sheet.style.display = 'block'; setSheetHeight(state); }
 
-  // Swipe-gest: kan startas på handtaget, headern eller på body om body är scrollad till topp
-  let dragStartY = 0, dragStartTime = 0, draggingSheet = false, startState = 'half', lastY = 0;
+  // Swipe-gest: starta på handtag/header, eller från body när scrollTop==0 (för nedåt-stäng)
+  let dragStartY = 0, dragStartTime = 0, draggingSheet = false, startState = 'half', baseOffset = 0, lastY = 0;
+  const SWIPE_THRESHOLD_FRACTION = 0.12; // var mer känslig (tidigare ~0.18)
+  const FAST_VELOCITY = 0.45; // px/ms – mer lätt att trigga
+
   function canStartDragFromBody(){ return sheetBody.scrollTop <= 0; }
 
   function sheetDragStart(e){
     draggingSheet = true; dragStartY = e.clientY; lastY = e.clientY; dragStartTime = performance.now(); startState = sheetState;
+    baseOffset = sheetOffsetY; // vanligtvis 0 när öppen
     sheetPanel.setPointerCapture(e.pointerId);
   }
   function sheetDragMove(e){
     if (!draggingSheet) return;
     const dy = e.clientY - dragStartY;
-    const vh = (visualViewport ? visualViewport.height : window.innerHeight);
-    const half = Math.round(vh * 0.48); const full = Math.round(vh * 0.92);
-    const startOffset = (startState==='full' ? 0 : 0); // båda utgår från 0 i vår modell
-    // Begränsa att man inte drar uppåt förbi 0
-    const offset = Math.max(0, startOffset + dy);
+    const S = sizes();
+    // När vi drar uppåt vill vi tillåta en liten "stretch" uppåt (negativ offset), clampad
+    const upAllowance = -40;
+    // När vi drar nedåt låter vi följa fingret
+    const newOffset = clamp(baseOffset + dy, upAllowance, S.full);
     sheetPanel.style.transition = 'none';
-    sheetPanel.style.transform = `translateY(${offset}px)`;
+    applySheetTransform(newOffset);
     lastY = e.clientY;
   }
   function sheetDragEnd(e){
     if (!draggingSheet) return;
     draggingSheet = false; sheetPanel.releasePointerCapture?.(e.pointerId);
     const dy = e.clientY - dragStartY; const dt = Math.max(1, performance.now() - dragStartTime);
-    const vy = dy / dt; // px per ms
-    const vh = (visualViewport ? visualViewport.height : window.innerHeight);
-    const threshold = vh * 0.18; // rörelsetröskel
-    const fast = Math.abs(vy) > 0.7; // snabb swipe
+    const vy = dy / dt; // px/ms
+    const S = sizes();
+    const threshold = S.full * SWIPE_THRESHOLD_FRACTION;
 
-    // Beslut: close / half / full
-    if (dy > threshold || (fast && vy > 0)) { // neråt
+    // Snabbt beslut
+    if (dy > threshold || vy > FAST_VELOCITY) { // nedåt → stäng
       setSheetHeight('closed');
-    } else if (dy < -threshold || (fast && vy < 0)) { // uppåt
-      setSheetHeight('full');
-    } else {
-      // Återgå till närmaste
-      if (Math.abs(dy) < threshold * 0.5) setSheetHeight(startState);
-      else setSheetHeight(dy > 0 ? 'closed' : 'full');
+      return;
     }
+    if (-dy > threshold || -vy > FAST_VELOCITY) { // uppåt → full
+      setSheetHeight('full');
+      return;
+    }
+    // Annars: gå till närmaste (half som default)
+    setSheetHeight(startState === 'full' ? 'half' : 'half');
   }
 
   // Bind drag på handtag och header
@@ -520,21 +537,39 @@
     el.addEventListener('pointerup', sheetDragEnd);
     el.addEventListener('pointercancel', sheetDragEnd);
   });
+
   // Tillåt drag från body när man drar NER och är i topp (för att stänga)
-  sheetBody.addEventListener('pointerdown', e => {
-    if (canStartDragFromBody()) { sheetDragStart(e); }
-  });
+  sheetBody.addEventListener('pointerdown', e => { if (canStartDragFromBody()) sheetDragStart(e); });
   sheetBody.addEventListener('pointermove', e => {
     if (!draggingSheet) return;
-    // Om man börjar scrolla uppåt (negativt), låt body sköta det
     const goingDown = (e.clientY - lastY) > 0;
-    if (draggingSheet && goingDown) { e.preventDefault(); sheetDragMove(e); }
+    // Förhindra att webbläsaren "pull-to-refresh" eller likn. kickar in
+    e.preventDefault();
+    if (goingDown) sheetDragMove(e);
   }, { passive:false });
   sheetBody.addEventListener('pointerup', sheetDragEnd);
   sheetBody.addEventListener('pointercancel', sheetDragEnd);
 
   // Stäng-knapp stänger notis helt
   sheetClose.addEventListener('click', () => setSheetHeight('closed'));
+
+  // ==== Viktigt: INGEN zoom inuti notisen ====
+  // Stoppa pinch/dubbel-tap zoom och hjul-zoom inne i panelen på mobiler och desktop
+  ['pointerdown','pointermove','wheel','dblclick'].forEach(evt => {
+    sheetPanel.addEventListener(evt, e => {
+      if (evt === 'pointermove' && e.pointerType !== 'mouse'){
+        // Om fler än 1 touch pekare är aktiva över panelen → blockera (förhindra att scenen zoomar)
+        // Vi kan inte läsa globalt antal här, men att bara preventDefault på touchmove över panelen räcker.
+        e.preventDefault();
+      }
+      if (evt === 'wheel') e.preventDefault();
+      e.stopPropagation();
+    }, { passive: false });
+  });
+  // iOS Safari special: förhindra pinch-zoom-gest i panelen
+  ['gesturestart','gesturechange','gestureend'].forEach(evt => {
+    sheetPanel.addEventListener(evt, e => e.preventDefault());
+  });
 
   // ===== MÄTNING =====
   let mode = 'notes'; let measurePoints = []; let measurePath = null;
