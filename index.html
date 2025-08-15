@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>index – Interaktiv karta (mobiloptimerad v3.0)</title>
+<title>index – Interaktiv karta (mobiloptimerad v3.1.1)</title>
 <style>
   :root { --bg:#0f1115; --ink:#e6e6e6; --muted:#2a3142; --panel:#141822; --shadow: rgba(0,0,0,.45); --accent:#ffd166; --line:#7dd3fc; --vh: 1vh; }
   * { box-sizing: border-box; }
@@ -31,8 +31,6 @@
   #noteBody:focus { box-shadow: inset 0 0 0 2px #3b82f6; }
   .note-img { max-width: 100%; height: auto; display:block; margin:8px 0; border-radius:6px; border:1px solid #2a3142; cursor: zoom-in; }
 
-  #stage.grabbing, body.grabbing { cursor: grabbing; }
-
   /* Lightbox */
   #lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.92); display: none; align-items: center; justify-content: center; z-index: 100; touch-action: none; }
   #lightboxInner { position: relative; max-width: 96vw; max-height: 96vh; overflow: hidden; }
@@ -49,15 +47,13 @@
   .toolbtn { background:#111827; color:#e5e7eb; border:1px solid #374151; padding:8px 10px; border-radius:10px; cursor:pointer; font-size:14px; white-space: nowrap; }
   .toolbtn.active { outline: 2px solid #60a5fa; }
 
-  /* Skallinje (UI-overlay) – behålls */
+  /* Skallinje */
   #scalebar { position: fixed; left: 14px; bottom: calc(14px + env(safe-area-inset-bottom)); z-index: 70; color:#e5e7eb; font-size: 12px; }
   #scalebar .bar { height: 6px; background: #e5e7eb; border-radius: 3px; box-shadow: 0 1px 0 rgba(0,0,0,.35) inset; }
   #scalebar .label { margin-top: 6px; text-align: center; opacity: .9; }
 
-  /* Player-banner (off) */
   #playerBanner { display:none; }
 
-  /* Mobiljusteringar */
   @media (max-width: 820px) {
     .toolbtn { padding:6px 8px; font-size:12px; }
     #sidebar { display:none !important; }
@@ -66,10 +62,11 @@
   /* Bottenskiva (mobil-notiser) */
   #sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 90; display:none; }
   #sheetPanel { margin: 0 auto; max-width: 880px; background: rgba(20,24,34,.98); border-top-left-radius: 16px; border-top-right-radius: 16px; border:1px solid #2a3142; box-shadow: 0 -8px 24px rgba(0,0,0,.45); padding: 6px 12px 14px; transform: translateY(0); will-change: transform; touch-action: pan-y; }
-  #sheetHeader { display:flex; align-items:center; justify-content: space-between; gap:8px; padding-bottom:8px; border-bottom:1px solid #262c3b; position: relative; }
-  /* Tre streck som handtag */
-  #sheetHandle { width: 48px; height: 12px; display:flex; flex-direction: column; gap:3px; align-items:center; justify-content:center; margin: 0 auto 8px; }
+  #sheetHeader { display:flex; align-items:center; justify-content: space-between; gap:8px; padding-bottom:8px; border-bottom:1px solid #262c3b; position: relative; touch-action: none; }
+  /* Tre streck som handtag (explicit mål) */
+  #sheetHandle { width: 48px; height: 14px; display:flex; flex-direction: column; gap:3px; align-items:center; justify-content:center; margin: 0 auto 8px; touch-action: none; }
   #sheetHandle span { width: 36px; height: 3px; background:#3b4154; border-radius: 2px; opacity:.95; }
+
   #sheetBody { max-height: 48dvh; overflow:auto; -webkit-overflow-scrolling: touch; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; }
   .mini-ghost { background:transparent; border:1px solid #374151; color:#e5e7eb; padding:6px 10px; border-radius:10px; cursor:pointer; }
 
@@ -305,7 +302,7 @@
   stage.addEventListener('pointercancel', endPointer);
 
   // ===== Lagring (IndexedDB + localStorage) =====
-  const LSK = 'tyraal_markers_meta_v23';
+  const LSK = 'tyraal_markers_meta_v24';
   const DB_NAME = 'tyraal_db'; const DB_STORE = 'notes';
   let db = null;
   function openDB(){ return new Promise((resolve, reject) => { const req = indexedDB.open(DB_NAME, 1); req.onupgradeneeded = () => { db = req.result; if (!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE, { keyPath: 'id' }); }; req.onsuccess = () => { db = req.result; resolve(db); }; req.onerror = () => reject(req.error); }); }
@@ -364,6 +361,7 @@
   function openLightbox(src){
     lightboxImg.onload = () => {
       lbImgW = lightboxImg.naturalWidth; lbImgH = lightboxImg.naturalHeight;
+      // Fit till containern
       const box = lightboxInner.getBoundingClientRect();
       const s = Math.min(box.width / lbImgW, box.height / lbImgH);
       lbScale = s; lbTx = (box.width - lbImgW * s)/2; lbTy = (box.height - lbImgH * s)/2;
@@ -377,12 +375,45 @@
   lightboxClose.addEventListener('click', closeLightbox);
 
   function applyLightboxTransform(){ lightboxImg.style.transform = `translate(${lbTx}px, ${lbTy}px) scale(${lbScale})`; }
-  function lbClampPan(){ const box = lightboxInner.getBoundingClientRect(); const w = lbImgW * lbScale, h = lbImgH * lbScale; const minX = Math.min(0, box.width - w), maxX = Math.max(0, (box.width - w)); const minY = Math.min(0, box.height - h), maxY = Math.max(0, (box.height - h)); lbTx = clamp(lbTx, minX, maxX); lbTy = clamp(lbTy, minY, maxY); }
-  function lbZoomAt(cx, cy, factor){ const box = lightboxInner.getBoundingClientRect(); const x = cx - box.left; const y = cy - box.top; const wx = (x - lbTx) / lbScale; const wy = (y - lbTy) / lbScale; const ns = clamp(lbScale * factor, LB_MIN, LB_MAX); lbTx = x - wx * ns; lbTy = y - wy * ns; lbScale = ns; lbClampPan(); applyLightboxTransform(); }
-  ['pointerdown','pointermove','pointerup','pointercancel','wheel','dblclick'].forEach(evt => { lightbox.addEventListener(evt, e => { e.stopPropagation(); if (evt !== 'pointerup' && evt !== 'pointercancel') e.preventDefault(); }, { passive:false }); });
+  function lbClampPan(){
+    const box = lightboxInner.getBoundingClientRect();
+    const w = lbImgW * lbScale, h = lbImgH * lbScale;
+    const minX = Math.min(0, box.width - w), maxX = Math.max(0, (box.width - w));
+    const minY = Math.min(0, box.height - h), maxY = Math.max(0, (box.height - h));
+    lbTx = clamp(lbTx, minX, maxX); lbTy = clamp(lbTy, minY, maxY);
+  }
+
+  function lbZoomAt(cx, cy, factor){
+    const box = lightboxInner.getBoundingClientRect();
+    const x = cx - box.left; const y = cy - box.top;
+    const wx = (x - lbTx) / lbScale; const wy = (y - lbTy) / lbScale;
+    const ns = clamp(lbScale * factor, LB_MIN, LB_MAX);
+    lbTx = x - wx * ns; lbTy = y - wy * ns; lbScale = ns; lbClampPan(); applyLightboxTransform();
+  }
+
+  // Blockera bubbla
+  ['pointerdown','pointermove','pointerup','pointercancel','wheel','dblclick'].forEach(evt => {
+    lightbox.addEventListener(evt, e => { e.stopPropagation(); if (evt !== 'pointerup' && evt !== 'pointercancel') e.preventDefault(); }, { passive:false });
+  });
+
+  // Gest-hantering i lightbox
   const lbPtrs = new Map();
-  lightbox.addEventListener('pointerdown', e => { if (!lbOpen) return; lightbox.setPointerCapture(e.pointerId); lbPtrs.set(e.pointerId, {x:e.clientX, y:e.clientY}); if (!lbStart) lbStart = { x:e.clientX, y:e.clientY, tx:lbTx, ty:lbTy }; });
-  lightbox.addEventListener('pointermove', e => { if (!lbOpen || !lbPtrs.has(e.pointerId)) return; lbPtrs.set(e.pointerId, {x:e.clientX, y:e.clientY}); const pts = [...lbPtrs.values()]; if (pts.length === 1){ const p = pts[0]; if (!lbStart) lbStart = { x:e.clientX, y:e.clientY, tx:lbTx, ty:lbTy }; lbTx = lbStart.tx + (p.x - lbStart.x); lbTy = lbStart.ty + (p.y - lbStart.y); lbClampPan(); applyLightboxTransform(); } else if (pts.length === 2){ const [a,b] = pts; const midX=(a.x+b.x)/2, midY=(a.y+b.y)/2; const dist=Math.hypot(b.x-a.x,b.y-a.y); if (lbLastDist==null){ lbLastDist = dist; return; } const factor = dist / lbLastDist; lbLastDist = dist; lbZoomAt(midX, midY, factor); } });
+  lightbox.addEventListener('pointerdown', e => {
+    if (!lbOpen) return; lightbox.setPointerCapture(e.pointerId); lbPtrs.set(e.pointerId, {x:e.clientX, y:e.clientY});
+    if (!lbStart) lbStart = { x:e.clientX, y:e.clientY, tx:lbTx, ty:lbTy };
+  });
+  lightbox.addEventListener('pointermove', e => {
+    if (!lbOpen || !lbPtrs.has(e.pointerId)) return; lbPtrs.set(e.pointerId, {x:e.clientX, y:e.clientY});
+    const pts = [...lbPtrs.values()];
+    if (pts.length === 1){ // pan
+      const p = pts[0]; if (!lbStart) lbStart = { x:e.clientX, y:e.clientY, tx:lbTx, ty:lbTy };
+      lbTx = lbStart.tx + (p.x - lbStart.x); lbTy = lbStart.ty + (p.y - lbStart.y); lbClampPan(); applyLightboxTransform();
+    } else if (pts.length === 2){ // pinch
+      const [a,b] = pts; const midX=(a.x+b.x)/2, midY=(a.y+b.y)/2; const dist=Math.hypot(b.x-a.x,b.y-a.y);
+      if (lbLastDist==null){ lbLastDist = dist; return; }
+      const factor = dist / lbLastDist; lbLastDist = dist; lbZoomAt(midX, midY, factor);
+    }
+  });
   function lbEnd(e){ lbPtrs.delete(e.pointerId); if (lbPtrs.size < 2) lbLastDist=null; if (lbPtrs.size===0) lbStart=null; }
   lightbox.addEventListener('pointerup', lbEnd); lightbox.addEventListener('pointercancel', lbEnd);
   lightbox.addEventListener('wheel', e => { if (!lbOpen) return; const f = e.deltaY < 0 ? 1.12 : 1/1.12; lbZoomAt(e.clientX, e.clientY, f); });
@@ -410,12 +441,14 @@
     const DRAG_THRESHOLD = 5; // px
     let suppressNextClick = false;
 
+    // Öppna vid klick (om ingen drag)
     m.addEventListener('click', ev => {
       if (suppressNextClick) { suppressNextClick = false; return; }
       ev.stopPropagation();
       if (openId === id) closePanels(); else openMarker(id);
     });
 
+    // Alt/Shift + drag för flytt
     m.addEventListener('pointerdown', ev => {
       if (mode !== 'notes' || IS_PLAYER) return;
       if (ev.pointerType==='mouse' && ev.button!==0) return; // bara vänster
@@ -428,11 +461,16 @@
       if (!canDrag) return;
       const dx = ev.clientX - startX, dy = ev.clientY - startY;
       if (!dragging && (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD)) dragging = true;
-      if (dragging){ const { wx, wy } = clientToWorldXY(ev.clientX, ev.clientY); m.style.left = wx + 'px'; m.style.top  = wy + 'px'; }
+      if (dragging){
+        const { wx, wy } = clientToWorldXY(ev.clientX, ev.clientY);
+        m.style.left = wx + 'px';
+        m.style.top  = wy + 'px';
+      }
     });
     m.addEventListener('pointerup', ev => {
       if (dragging){ suppressNextClick = true; saveMeta(); }
-      dragging = false; canDrag = false; document.body.classList.remove('grabbing'); stage.classList.remove('grabbing');
+      dragging = false; canDrag = false;
+      document.body.classList.remove('grabbing'); stage.classList.remove('grabbing');
     });
 
     m.addEventListener('contextmenu', async ev => { if (IS_PLAYER) return; ev.preventDefault(); if (confirm('Ta bort denna markering och dess notis?')) { if (openId === id) closePanels(); world.removeChild(m); delete store[id]; saveMeta(); try { await idbSet(id, ''); } catch(_){} } });
@@ -480,10 +518,10 @@
     closePanels();
   });
 
-  // ===== Bottenskiva: tre streck-handtag + direkt upp/full och ner/stäng =====
+  // ===== Bottenskiva: tre-streckshandtag – korrekt pointer capture & iOS touch-action =====
   let mode = 'notes';
   let sheetState = 'half'; // 'closed' | 'half' | 'full'
-  let sheetOffsetY = 0; // nuvarande translateY i px (positiv = nedåt)
+  let sheetOffsetY = 0; // nuvarande translateY i px
 
   function sizes(){
     const vh = (visualViewport ? visualViewport.height : window.innerHeight);
@@ -500,11 +538,10 @@
   }
   function openSheet(state='half'){ sheet.style.display = 'block'; setSheetHeight(state); }
 
-  // Drag/Swipe – endast på tre-streck-handtaget + header
-  let dragStartY = 0, dragStartTime = 0, draggingSheet = false, baseOffset = 0;
-  function sheetDragStart(e){ draggingSheet = true; dragStartY = e.clientY; dragStartTime = performance.now(); baseOffset = sheetOffsetY; sheetPanel.setPointerCapture(e.pointerId); e.preventDefault(); }
+  let dragStartY = 0, dragStartTime = 0, draggingSheet = false, baseOffset = 0, dragTargetEl = null;
+  function sheetDragStart(e){ draggingSheet = true; dragTargetEl = e.currentTarget; dragStartY = e.clientY; dragStartTime = performance.now(); baseOffset = sheetOffsetY; try { dragTargetEl.setPointerCapture(e.pointerId); } catch(_){} e.preventDefault(); }
   function sheetDragMove(e){ if (!draggingSheet) return; const dy = e.clientY - dragStartY; const S = sizes(); const upAllowance = -60; const newOffset = clamp(baseOffset + dy, upAllowance, S.full); sheetPanel.style.transition = 'none'; applySheetTransform(newOffset); }
-  function sheetDragEnd(e){ if (!draggingSheet) return; draggingSheet = false; sheetPanel.releasePointerCapture?.(e.pointerId); const dy = e.clientY - dragStartY; const dt = Math.max(1, performance.now() - dragStartTime); const vy = dy / dt; if (dy < -10 || vy < -0.3) { setSheetHeight('full'); return; } if (dy > 10 || vy > 0.5) { setSheetHeight('closed'); return; } setSheetHeight(sheetState); }
+  function sheetDragEnd(e){ if (!draggingSheet) return; try { dragTargetEl?.releasePointerCapture?.(e.pointerId); } catch(_){} draggingSheet = false; const dy = e.clientY - dragStartY; const dt = Math.max(1, performance.now() - dragStartTime); const vy = dy / dt; if (dy < -10 || vy < -0.3) { setSheetHeight('full'); return; } if (dy > 10 || vy > 0.5) { setSheetHeight('closed'); return; } setSheetHeight(sheetState); }
 
   ;[sheetHandle, document.getElementById('sheetHeader')].forEach(el => {
     el.addEventListener('pointerdown', sheetDragStart, { passive:false });
@@ -513,7 +550,7 @@
     el.addEventListener('pointercancel', sheetDragEnd);
   });
 
-  // Inaktivera zoom/pan inne i själva panelen
+  // Inaktivera zoom/pan inne i panelen
   ['pointermove','wheel','dblclick','gesturestart','gesturechange','gestureend'].forEach(evt => {
     sheetPanel.addEventListener(evt, e => { e.preventDefault(); e.stopPropagation(); }, { passive:false });
   });
@@ -543,9 +580,6 @@
     // Etikett i mittpunkten av hela polylinens längd
     const lenPx = totalPixels();
     const lenMeters = lenPx * getMetersPerPixel();
-    const label = formatMeters(lenMeters);
-
-    // Beräkna mittpunkt längs polyline
     let target = lenPx / 2; let acc = 0; let mid = {x: measurePoints[0].x, y: measurePoints[0].y};
     for (let i=1;i<measurePoints.length;i++){
       const a=measurePoints[i-1], b=measurePoints[i]; const seg = Math.hypot(b.x-a.x, b.y-a.y);
