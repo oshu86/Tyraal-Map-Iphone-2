@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>index – Interaktiv karta (mobiloptimerad v2.9)</title>
+<title>index – Interaktiv karta (mobiloptimerad v3.0)</title>
 <style>
   :root { --bg:#0f1115; --ink:#e6e6e6; --muted:#2a3142; --panel:#141822; --shadow: rgba(0,0,0,.45); --accent:#ffd166; --line:#7dd3fc; --vh: 1vh; }
   * { box-sizing: border-box; }
@@ -27,7 +27,7 @@
   #sidebar h3 { margin:0; font-size:16px; font-weight:600; opacity:.9; }
   .mini { border:1px solid var(--muted); background:#1a2030; color:#ddd; padding:6px 10px; border-radius:8px; cursor:pointer; }
   #content { height: calc(100dvh - 52px); overflow:auto; padding:12px; }
-  #noteBody { background:#0e1220; border:1px solid #2a3142; border-radius:8px; padding:10px; min-height: 180px; white-space: pre-wrap; outline:none; }
+  #noteBody { background:#0e1220; border:1px solid #2a3142; border-radius:8px; padding:10px; min-height: 180px; white-space: pre-wrap; outline:none; word-break: break-word; overflow-wrap: anywhere; }
   #noteBody:focus { box-shadow: inset 0 0 0 2px #3b82f6; }
   .note-img { max-width: 100%; height: auto; display:block; margin:8px 0; border-radius:6px; border:1px solid #2a3142; cursor: zoom-in; }
 
@@ -42,15 +42,12 @@
   /* Overlay SVG för mätning */
   #overlay { position:absolute; left:0; top:0; overflow:visible; pointer-events:none; }
   .measure-line { stroke: var(--line); stroke-width: 2; fill: none; vector-effect: non-scaling-stroke; }
+  .measure-label { font: 14px/1.2 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; fill: #e6e6e6; paint-order: stroke; stroke: rgba(0,0,0,.6); stroke-width: 3; }
 
-  /* Toolbox – flyttad till höger, vertikal stack */
-  #toolbox {
-    position: fixed; right: 8px; top: env(safe-area-inset-top, 8px);
-    display: flex; flex-direction: column; gap: 8px; z-index: 60; align-items: stretch;
-  }
-  .toolbtn { background:#111827; color:#e5e7eb; border:1px solid #374151; padding:8px 10px; border-radius:10px; cursor:pointer; font-size:14px; text-align:left; }
+  /* Verktygsrad – horisontellt uppe till höger */
+  #toolbox { position: fixed; right: 8px; top: env(safe-area-inset-top, 8px); display: flex; gap: 8px; z-index: 60; align-items:center; flex-wrap: nowrap; }
+  .toolbtn { background:#111827; color:#e5e7eb; border:1px solid #374151; padding:8px 10px; border-radius:10px; cursor:pointer; font-size:14px; white-space: nowrap; }
   .toolbtn.active { outline: 2px solid #60a5fa; }
-  .pill { display:none; } /* Skala-readout borttagen */
 
   /* Skallinje (UI-overlay) – behålls */
   #scalebar { position: fixed; left: 14px; bottom: calc(14px + env(safe-area-inset-bottom)); z-index: 70; color:#e5e7eb; font-size: 12px; }
@@ -69,10 +66,15 @@
   /* Bottenskiva (mobil-notiser) */
   #sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 90; display:none; }
   #sheetPanel { margin: 0 auto; max-width: 880px; background: rgba(20,24,34,.98); border-top-left-radius: 16px; border-top-right-radius: 16px; border:1px solid #2a3142; box-shadow: 0 -8px 24px rgba(0,0,0,.45); padding: 6px 12px 14px; transform: translateY(0); will-change: transform; touch-action: pan-y; }
-  #sheetHeader { display:flex; align-items:center; justify-content: space-between; gap:8px; padding-bottom:8px; border-bottom:1px solid #262c3b; }
-  #sheetHandle { width: 44px; height: 5px; background:#3b4154; border-radius: 999px; margin: 4px auto 10px; opacity:.85; touch-action:none; }
-  #sheetBody { max-height: 48dvh; overflow:auto; -webkit-overflow-scrolling: touch; }
+  #sheetHeader { display:flex; align-items:center; justify-content: space-between; gap:8px; padding-bottom:8px; border-bottom:1px solid #262c3b; position: relative; }
+  /* Tre streck som handtag */
+  #sheetHandle { width: 48px; height: 12px; display:flex; flex-direction: column; gap:3px; align-items:center; justify-content:center; margin: 0 auto 8px; }
+  #sheetHandle span { width: 36px; height: 3px; background:#3b4154; border-radius: 2px; opacity:.95; }
+  #sheetBody { max-height: 48dvh; overflow:auto; -webkit-overflow-scrolling: touch; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; }
   .mini-ghost { background:transparent; border:1px solid #374151; color:#e5e7eb; padding:6px 10px; border-radius:10px; cursor:pointer; }
+
+  /* Begränsa radlängd i notiser (≈51 tecken) */
+  .note-text { max-width: 51ch; }
 </style>
 </head>
 <body>
@@ -85,7 +87,7 @@
       </div>
     </header>
     <div id="content">
-      <div id="noteBody" contenteditable="true" spellcheck="false">Skriv din not här...</div>
+      <div id="noteBody" class="note-text" contenteditable="true" spellcheck="true" lang="sv">Skriv din not här...</div>
       <p id="pasteHint" style="opacity:.75; font-size:12px; margin-top:8px">Tips: Klistra in (Ctrl/Cmd+V) eller dra‑och‑släpp en bild direkt i textfältet. Klicka på en bild för stor visning.</p>
     </div>
   </aside>
@@ -93,7 +95,9 @@
   <!-- Mobil-bottenskiva -->
   <div id="sheet">
     <div id="sheetPanel">
-      <div id="sheetHandle"></div>
+      <div id="sheetHandle" title="Dra upp för full, ner för stäng">
+        <span></span><span></span><span></span>
+      </div>
       <div id="sheetHeader">
         <h3 id="sheetTitle" style="margin:0;font-size:15px">Markering</h3>
         <div id="sheetBtns">
@@ -102,8 +106,8 @@
           <input id="mImgInput" type="file" accept="image/*" style="display:none" />
         </div>
       </div>
-      <div id="sheetBody" contenteditable="true" spellcheck="false"></div>
-      <p id="sheetHint" style="opacity:.75; font-size:12px; margin-top:8px">Tips: dra handtaget för att expandera/stänga.</p>
+      <div id="sheetBody" class="note-text" contenteditable="true" spellcheck="true" lang="sv"></div>
+      <p id="sheetHint" style="opacity:.75; font-size:12px; margin-top:8px">Tips: dra på de tre strecken för att expandera/stänga.</p>
     </div>
   </div>
 
@@ -301,7 +305,7 @@
   stage.addEventListener('pointercancel', endPointer);
 
   // ===== Lagring (IndexedDB + localStorage) =====
-  const LSK = 'tyraal_markers_meta_v22';
+  const LSK = 'tyraal_markers_meta_v23';
   const DB_NAME = 'tyraal_db'; const DB_STORE = 'notes';
   let db = null;
   function openDB(){ return new Promise((resolve, reject) => { const req = indexedDB.open(DB_NAME, 1); req.onupgradeneeded = () => { db = req.result; if (!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE, { keyPath: 'id' }); }; req.onsuccess = () => { db = req.result; resolve(db); }; req.onerror = () => reject(req.error); }); }
@@ -476,7 +480,7 @@
     closePanels();
   });
 
-  // ===== Bottenskiva: asymmetrisk swipe =====
+  // ===== Bottenskiva: tre streck-handtag + direkt upp/full och ner/stäng =====
   let mode = 'notes';
   let sheetState = 'half'; // 'closed' | 'half' | 'full'
   let sheetOffsetY = 0; // nuvarande translateY i px (positiv = nedåt)
@@ -496,57 +500,70 @@
   }
   function openSheet(state='half'){ sheet.style.display = 'block'; setSheetHeight(state); }
 
-  // Asymmetrisk känslighet: upp = lätt (expanderar direkt), ner = kräver mer
-  let dragStartY = 0, dragStartTime = 0, draggingSheet = false, baseOffset = 0, lastY = 0;
-  const THRESH_UP_FRAC = 0.02;    // 2% för upp → full
-  const THRESH_DOWN_FRAC = 0.20;  // 20% för ner → stäng
-  const VEL_UP = 0.18;            // px/ms för snabb upp
-  const VEL_DOWN = 0.55;          // px/ms för snabb ner
+  // Drag/Swipe – endast på tre-streck-handtaget + header
+  let dragStartY = 0, dragStartTime = 0, draggingSheet = false, baseOffset = 0;
+  function sheetDragStart(e){ draggingSheet = true; dragStartY = e.clientY; dragStartTime = performance.now(); baseOffset = sheetOffsetY; sheetPanel.setPointerCapture(e.pointerId); e.preventDefault(); }
+  function sheetDragMove(e){ if (!draggingSheet) return; const dy = e.clientY - dragStartY; const S = sizes(); const upAllowance = -60; const newOffset = clamp(baseOffset + dy, upAllowance, S.full); sheetPanel.style.transition = 'none'; applySheetTransform(newOffset); }
+  function sheetDragEnd(e){ if (!draggingSheet) return; draggingSheet = false; sheetPanel.releasePointerCapture?.(e.pointerId); const dy = e.clientY - dragStartY; const dt = Math.max(1, performance.now() - dragStartTime); const vy = dy / dt; if (dy < -10 || vy < -0.3) { setSheetHeight('full'); return; } if (dy > 10 || vy > 0.5) { setSheetHeight('closed'); return; } setSheetHeight(sheetState); }
 
-  function sheetDragStart(e){ draggingSheet = true; dragStartY = e.clientY; lastY = e.clientY; dragStartTime = performance.now(); baseOffset = sheetOffsetY; sheetPanel.setPointerCapture(e.pointerId); }
-  function sheetDragMove(e){ if (!draggingSheet) return; const dy = e.clientY - dragStartY; const S = sizes(); const upAllowance = -60; const newOffset = clamp(baseOffset + dy, upAllowance, S.full); sheetPanel.style.transition = 'none'; applySheetTransform(newOffset); lastY = e.clientY; }
-  function sheetDragEnd(e){
-    if (!draggingSheet) return; draggingSheet = false; sheetPanel.releasePointerCapture?.(e.pointerId);
-    const dy = e.clientY - dragStartY; const dt = Math.max(1, performance.now() - dragStartTime); const vy = dy / dt; const S = sizes();
-    const upThresh = S.full * THRESH_UP_FRAC; const downThresh = S.full * THRESH_DOWN_FRAC;
-    if (-dy > upThresh || -vy > VEL_UP) { setSheetHeight('full'); return; }       // lätt upp → full
-    if (dy > downThresh || vy > VEL_DOWN) { setSheetHeight('closed'); return; }   // kräver mer ner → stäng
-    // små rörelser: snappa tillbaka till half
-    setSheetHeight('half');
-  }
   ;[sheetHandle, document.getElementById('sheetHeader')].forEach(el => {
-    el.addEventListener('pointerdown', e => { e.preventDefault(); sheetDragStart(e); });
-    el.addEventListener('pointermove', e => { e.preventDefault(); sheetDragMove(e); }, { passive:false });
+    el.addEventListener('pointerdown', sheetDragStart, { passive:false });
+    el.addEventListener('pointermove', sheetDragMove, { passive:false });
     el.addEventListener('pointerup', sheetDragEnd);
     el.addEventListener('pointercancel', sheetDragEnd);
   });
-  // Tillåt dra från body NEDÅT för att stänga när man är i topp
-  const canStartDragFromBody = () => sheetBody.scrollTop <= 0;
-  sheetBody.addEventListener('pointerdown', e => { if (canStartDragFromBody()) sheetDragStart(e); });
-  sheetBody.addEventListener('pointermove', e => { if (!draggingSheet) return; e.preventDefault(); const goingDown = (e.clientY - lastY) > 0; if (goingDown) sheetDragMove(e); }, { passive:false });
-  sheetBody.addEventListener('pointerup', sheetDragEnd);
-  sheetBody.addEventListener('pointercancel', sheetDragEnd);
 
-  // Stäng-knapp stänger notis helt
-  sheetClose.addEventListener('click', () => setSheetHeight('closed'));
-
-  // ==== Viktigt: INGEN zoom i notisen (panel) ====
-  // Blockera pinch/wheel/dblclick inne i panelen så kartan inte zoomar pga misstag;
-  // Notisen är statisk: zooma/pan kartan genom att interagera UTANFÖR panelen.
+  // Inaktivera zoom/pan inne i själva panelen
   ['pointermove','wheel','dblclick','gesturestart','gesturechange','gestureend'].forEach(evt => {
     sheetPanel.addEventListener(evt, e => { e.preventDefault(); e.stopPropagation(); }, { passive:false });
   });
 
-  // ===== MÄTNING =====
-  let measurePoints = []; let measurePath = null;
-  function setMode(newMode){ mode = newMode; btnModeNotes.classList.toggle('active', mode==='notes'); btnModeMeasure.classList.toggle('active', mode==='measure'); if (mode==='measure') closePanels(); }
+  // Stäng-knapp stänger notis helt
+  sheetClose.addEventListener('click', () => setSheetHeight('closed'));
+
+  // ===== MÄTNING med etikett i mitten =====
+  let measurePoints = []; let measurePath = null; let measureLabel = null;
+  function setMode(newMode){ mode = newMode; btnModeNotes.classList.toggle('active', mode==='notes'); btnModeMeasure.classList.toggle('active', mode==='measure'); if (mode==='measure') closePanels(); if (mode==='notes') { clearMeasurePreview(); } }
   btnModeNotes.addEventListener('click', () => setMode('notes'));
   btnModeMeasure.addEventListener('click', () => setMode('measure'));
   btnUndo.addEventListener('click', () => { if (mode !== 'measure') setMode('measure'); measurePoints.pop(); updateMeasurePath(); });
   btnReset.addEventListener('click', () => { if (mode !== 'measure') setMode('measure'); measurePoints = []; updateMeasurePath(); });
+
+  function clearMeasurePreview(){ if (measureLabel){ measureLabel.remove(); measureLabel = null; } }
+
   const formatMeters = m => (m < 1000) ? Math.round(m) + ' m' : (m/1000).toFixed(2) + ' km';
-  function updateMeasurePath(){ if (!measurePoints.length) { if (measurePath) { measurePath.remove(); measurePath=null; } return; } const d = measurePoints.map((p,i)=> (i? 'L':'M') + p.x + ' ' + p.y).join(' '); if (!measurePath){ measurePath = document.createElementNS('http://www.w3.org/2000/svg','path'); measurePath.setAttribute('class','measure-line'); overlay.appendChild(measurePath); } measurePath.setAttribute('d', d); let totalPx = 0; for (let i=1;i<measurePoints.length;i++){ const a=measurePoints[i-1], b=measurePoints[i]; totalPx += Math.hypot(b.x-a.x, b.y-a.y); } /* du kan lägga console.log('Total', formatMeters(totalPx * getMetersPerPixel())) */ }
-  stage.addEventListener('click', e => { if (mode!=='measure') return; const rect=stage.getBoundingClientRect(); const wx = (e.clientX - rect.left - tx) / scale; const wy = (e.clientY - rect.top - ty) / scale; measurePoints.push({x:wx,y:wy}); updateMeasurePath(); });
+  function totalPixels(){ let totalPx = 0; for (let i=1;i<measurePoints.length;i++){ const a=measurePoints[i-1], b=measurePoints[i]; totalPx += Math.hypot(b.x-a.x, b.y-a.y); } return totalPx; }
+
+  function updateMeasurePath(){
+    if (!measurePoints.length){ if (measurePath) { measurePath.remove(); measurePath=null; } clearMeasurePreview(); return; }
+    const d = measurePoints.map((p,i)=> (i? 'L':'M') + p.x + ' ' + p.y).join(' ');
+    if (!measurePath){ measurePath = document.createElementNS('http://www.w3.org/2000/svg','path'); measurePath.setAttribute('class','measure-line'); overlay.appendChild(measurePath); }
+    measurePath.setAttribute('d', d);
+
+    // Etikett i mittpunkten av hela polylinens längd
+    const lenPx = totalPixels();
+    const lenMeters = lenPx * getMetersPerPixel();
+    const label = formatMeters(lenMeters);
+
+    // Beräkna mittpunkt längs polyline
+    let target = lenPx / 2; let acc = 0; let mid = {x: measurePoints[0].x, y: measurePoints[0].y};
+    for (let i=1;i<measurePoints.length;i++){
+      const a=measurePoints[i-1], b=measurePoints[i]; const seg = Math.hypot(b.x-a.x, b.y-a.y);
+      if (acc + seg >= target){ const t = (target - acc) / seg; mid = { x: a.x + (b.x-a.x)*t, y: a.y + (b.y-a.y)*t }; break; }
+      acc += seg;
+    }
+    if (!measureLabel){ measureLabel = document.createElementNS('http://www.w3.org/2000/svg','text'); measureLabel.setAttribute('class','measure-label'); overlay.appendChild(measureLabel); }
+    measureLabel.setAttribute('x', mid.x);
+    measureLabel.setAttribute('y', mid.y - 8); // lite ovanför linjen
+    measureLabel.textContent = (lenMeters >= 1000) ? (lenMeters/1000).toFixed(2) + ' km' : Math.round(lenMeters) + ' m';
+  }
+
+  stage.addEventListener('click', e => {
+    if (mode!=='measure') return;
+    const rect=stage.getBoundingClientRect();
+    const wx = (e.clientX - rect.left - tx) / scale; const wy = (e.clientY - rect.top - ty) / scale;
+    measurePoints.push({x:wx,y:wy}); updateMeasurePath();
+  });
 
   // ===== Skallinje =====
   const SCALE_CANDIDATES = [500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000];
